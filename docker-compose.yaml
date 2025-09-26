@@ -1,0 +1,8 @@
+services:
+  weather-app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      # Substitua "SUA_CHAVE_DA_WEATHER_API_AQUI" pela sua chave real
+      - WEATHER_API_KEY=dasdasdsdad
