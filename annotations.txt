@@ -1,0 +1,7 @@
+COMMANDS
+
+Comando Help
+> gcloud
+
+Logar na sua conta google
+> gcloud auth login
