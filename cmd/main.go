@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -14,7 +15,7 @@ import (
 // ViaCEPResponse representa a estrutura da resposta da API ViaCEP
 type ViaCEPResponse struct {
 	Localidade string `json:"localidade"`
-	Erro       bool   `json:"erro"`
+	Erro       string `json:"erro"`
 }
 
 // WeatherAPIResponse representa a estrutura da resposta da API WeatherAPI
@@ -68,19 +69,29 @@ func handleGetWeather(w http.ResponseWriter, r *http.Request) {
 	defer viaCEPResp.Body.Close()
 
 	if viaCEPResp.StatusCode != http.StatusOK {
-		log.Printf("ViaCEP retornou status %d", viaCEPResp.StatusCode)
-		http.Error(w, "Failed to get city information from ViaCEP", http.StatusInternalServerError)
+		bodyBytes, _ := io.ReadAll(viaCEPResp.Body)
+		log.Printf("ViaCEP retornou status %d para CEP %s. Corpo: %s", viaCEPResp.StatusCode, cep, string(bodyBytes))
+		http.Error(w, "Failed to get city information from ViaCEP (non-200 status)", http.StatusInternalServerError)
+		return
+	}
+
+	bodyBytes, err := io.ReadAll(viaCEPResp.Body)
+	if err != nil {
+		log.Printf("Erro ao ler corpo da resposta do ViaCEP para CEP %s: %v", cep, err)
+		http.Error(w, "Failed to read city information response", http.StatusInternalServerError)
 		return
 	}
 
 	var viaCEPData ViaCEPResponse
-	if err := json.NewDecoder(viaCEPResp.Body).Decode(&viaCEPData); err != nil {
-		log.Printf("Erro ao decodificar resposta do ViaCEP: %v", err)
+	if err := json.NewDecoder(bytes.NewBuffer(bodyBytes)).Decode(&viaCEPData); err != nil {
+		log.Printf("Erro ao decodificar resposta do ViaCEP para CEP %s: %v. Corpo recebido: %s", cep, err, string(bodyBytes))
 		http.Error(w, "Failed to parse city information", http.StatusInternalServerError)
 		return
 	}
 
-	if viaCEPData.Erro || viaCEPData.Localidade == "" {
+	// O ViaCEP pode retornar "true" (string) ou true (bool), então verificamos ambos
+	if viaCEPData.Erro == "true" || viaCEPData.Erro == "1" || viaCEPData.Localidade == "" {
+		log.Printf("CEP %s não encontrado. ViaCEP retornou erro: %s, localidade: %s", cep, viaCEPData.Erro, viaCEPData.Localidade)
 		w.WriteHeader(http.StatusNotFound) // 404
 		json.NewEncoder(w).Encode(map[string]string{"message": "can not find zipcode"})
 		return
@@ -99,7 +110,7 @@ func handleGetWeather(w http.ResponseWriter, r *http.Request) {
 
 	encodedCityName := url.QueryEscape(cityName)
 	weatherAPIURL := fmt.Sprintf("https://api.weatherapi.com/v1/current.json?key=%s&q=%s", weatherAPIKey, encodedCityName)
-	log.Printf("Consultando WeatherAPI para %s", cityName)
+	log.Printf("Consultando WeatherAPI para %s, URL: %s", cityName, weatherAPIURL)
 
 	weatherResp, err := http.Get(weatherAPIURL)
 	if err != nil {
